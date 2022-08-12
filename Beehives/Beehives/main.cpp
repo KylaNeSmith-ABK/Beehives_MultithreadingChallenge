@@ -12,11 +12,11 @@ std::condition_variable g_HoneyFull, g_HoneyEmpty;
 bool g_bHoneyContainerFull = false;
 bool g_bContainerInUse = false;
 
-int GetRandomInt()
+int GetRandomInt(int min = 5, int max = 15)
 {
 	int seedInt = std::chrono::system_clock::now().time_since_epoch().count();
 	std::minstd_rand generator(seedInt);
-	return ((generator() % 10) + 5);
+	return ((generator() % (max-min)) + min);
 }
 
 class Beehive
@@ -30,90 +30,41 @@ private:
 	bool bIsActive_ = true;
 	std::thread* ActiveBeehiveThread_ = nullptr;
 
-	//bool bHasHoney = false;
-
 	void Active()
 	{
 		while (bIsActive_)
 		{
-			//int randInterval = rand() % 15 + 1;
-
-			// --- ATTEMPT 1 && 5---
+			// wait 5 - 10 seconds
 			int randInterval = GetRandomInt();
 			std::this_thread::sleep_for(std::chrono::seconds(randInterval));
 
-			std::unique_lock<std::mutex> lock(g_HoneyMutex);
-			g_HoneyEmpty.wait(lock, []() { return !g_bHoneyContainerFull; });
-
 			ProduceHoney();
-
-			lock.unlock();
-			g_HoneyFull.notify_all();
-
-
-			// --- ATTEMPT 2 ---
-			/*std::lock_guard<std::mutex> lock(g_HoneyMutex);
-			while (g_bHoneyContainerFull)
-			{
-
-			}
-
-			ProduceHoney();*/
-
-
-			//if (TimesHoneyProducedCounter_ >= MAXTIMESHONEYPRODUCED_)
-			//{
-			//	bIsActive_ = false;
-			//	printf("%s is no longer active\n", Name_.c_str());
-			//	//std::cout << Name_ << " is no longer active" << std::endl;
-			//}
-
-
-			// --- ATTEMPT 4 ---
-			/*int randInterval = GetRandomInt();
-			std::this_thread::sleep_for(std::chrono::seconds(randInterval));
-
-			while (g_bContainerInUse || g_bHoneyContainerFull)
-			{
-
-			}
-
-			g_bContainerInUse = true;
-			ProduceHoney();
-			g_bContainerInUse = false;*/
-
-
-			// --- ATTEMPT 3 ---
-			/*if (!bHasHoney)
-			{
-				int randInterval = GetRandomInt();
-				std::this_thread::sleep_for(std::chrono::seconds(randInterval));
-				bHasHoney = true;
-			}
-
-			if (bHasHoney && !g_bContainerInUse && !g_bHoneyContainerFull)
-			{
-				g_bContainerInUse = true;
-				ProduceHoney();
-				g_bContainerInUse = false;
-			}*/
 		}
 	
 	}
 
+	// locks and fills Honey Container
 	void ProduceHoney()
+	{
+		std::unique_lock<std::mutex> lock(g_HoneyMutex);
+		g_HoneyEmpty.wait(lock, []() { return !g_bHoneyContainerFull; });
+
+		FillHoneyContainer();
+
+		lock.unlock();
+		g_HoneyFull.notify_all();
+	}
+
+	// places Honey in the Container, increments counter, and prints out information
+	void FillHoneyContainer()
 	{
 		TimesHoneyProducedCounter_++;
 		g_bHoneyContainerFull = true;
 		printf("%s has produced honey! Count: %i\n", Name_.c_str(), TimesHoneyProducedCounter_);
-		//std::cout << Name_ << " has produced honey!" << std::endl;
-
-		// --- ATTEMPT 3 && 4 && 5---
+		
 		if (TimesHoneyProducedCounter_ >= MaxTimeHoneyProduced_)
 		{
-			bIsActive_ = false;
-			printf("%s is no longer active\n", Name_.c_str());
-			//std::cout << Name_ << " is no longer active" << std::endl;
+			MakeInactive();
 		}
 	}
 
@@ -132,12 +83,22 @@ public:
 		delete ActiveBeehiveThread_;
 	}
 
+	// runs the Beehive's thread
 	void Run()
 	{
 		ActiveBeehiveThread_ = new std::thread([this] {Active(); });
 	}
 
-	bool IsActive() { return bIsActive_; }
+	bool IsActive()
+	{
+		return bIsActive_;
+	}
+
+	void MakeInactive()
+	{
+		bIsActive_ = false;
+		printf("%s is no longer active\n", Name_.c_str());
+	}
 };
 
 class Farmer
@@ -153,45 +114,28 @@ private:
 	{
 		while (bIsActive_)
 		{
-			// --- ATTEMPT 1 && 5---
-			std::unique_lock<std::mutex> lock(g_HoneyMutex);
-			g_HoneyFull.wait(lock, []() {return g_bHoneyContainerFull; });
-
 			CollectHoney();
-
-			lock.unlock();
-			g_HoneyEmpty.notify_one();
-
-
-			// --- ATTEMPT 2 ---
-			/*std::lock_guard<std::mutex> lock(g_HoneyMutex);
-			if (g_bHoneyContainerFull)
-			{
-				CollectHoney();
-			}*/
-
-
-			// --- ATTEMPT 3 && 4---
-			/*if (g_bHoneyContainerFull)
-			{
-				while (g_bContainerInUse)
-				{
-
-				}
-
-				g_bContainerInUse = true;
-				CollectHoney();
-				g_bContainerInUse = false;
-			}*/
 		}
 	}
 
+	// locks and takes the Honey
 	void CollectHoney()
+	{
+		std::unique_lock<std::mutex> lock(g_HoneyMutex);
+		g_HoneyFull.wait(lock, []() {return g_bHoneyContainerFull; });
+
+		TakeHoney();
+
+		lock.unlock();
+		g_HoneyEmpty.notify_one();
+	}
+
+	// removes Honey from the Container, increments counter, and prints out information
+	void TakeHoney()
 	{
 		HoneyCollectedCounter_++;
 		g_bHoneyContainerFull = false;
 		printf("\n%s has collected honey %i times!\n\n", Name_.c_str(), HoneyCollectedCounter_);
-		//std::cout << Name_ << " has collected honey " << HoneyCollectedCounter_ << " times!" << std::endl;
 	}
 
 public:
@@ -210,6 +154,7 @@ public:
 		delete ActiveFarmerThread_;
 	}
 
+	// runs the Farmers's thread
 	void Run()
 	{
 		ActiveFarmerThread_ = new std::thread([this] {Active(); });
@@ -256,6 +201,7 @@ int main()
 
 	while (bRun)
 	{
+		// if even one is true, continue running
 		bRun = HiveOne->IsActive()
 			|| HiveTwo->IsActive()
 			|| HiveThree->IsActive()
@@ -265,12 +211,12 @@ int main()
 			|| g_bContainerInUse;
 	}
 
+	// stop the farmer
 	FarmerJohn->MakeInactive();
 
-	std::cout << std::endl;
-	printf("\nThe farmer collected honey %i times\n", FarmerJohn->GetHoneyCollectedCount());
-	//std::cout << "The farmer collected honey " << FarmerJohn->GetHoneyCollectedCount() << " times" << std::endl;
+	printf("\n\nThe farmer collected honey %i times\n", FarmerJohn->GetHoneyCollectedCount());
 
+	// clean up
 	delete HiveOne;
 	HiveOne = nullptr;
 	delete HiveTwo;
